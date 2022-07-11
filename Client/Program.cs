@@ -11,7 +11,7 @@ namespace Client
         {
             FileClient client = new FileClient();
             //Ввод параметров клиента
-            client.InputArguments();
+            client.InputArgumentsConsole();
             //Запуск клиента
             client.StartClient();
 

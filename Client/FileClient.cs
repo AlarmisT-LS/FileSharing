@@ -4,14 +4,14 @@ using System.Linq;
 using System.Text;
 using System.Net;
 using System.Net.Sockets;
+using Server;
 
 namespace Client
 {
 
 
-    public class FileClient
+    public class FileClient : DataExchange
     {
-        // адрес и порт сервера, к которому будем подключаться
         private string address;
         private int port; 
         private int portUDP;
@@ -70,45 +70,10 @@ namespace Client
             }
         }
 
-        //Инициализация аргументов
-        public void InputArguments()
-        {
-            while (true)
-            {
-                try
-                {
-                    address = TextToConsoleIsReadline("Введите Ip");
-                    port = Convert.ToInt32(TextToConsoleIsReadline("Введите порт"));
-                    portUDP = Convert.ToInt32(TextToConsoleIsReadline("Введите порт UDP"));
-                    path = TextToConsoleIsReadline("Введите путь к файлу");
-                    timeout = Convert.ToInt32(TextToConsoleIsReadline("Введите timeout"));
-                    break;
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine(e.Message);
-                }
-            }
-
-        }
-
-        //Принимает данные через TCP от клиента, переводит их в string и возвращает
-        private string TextToConsoleIsReadline(string text)
-        {
-            string enter;
-            Console.Write($"{text}:");
-            enter = Console.ReadLine();
-            if (enter == null)
-            {
-                throw new Exception("Введено некорректное значение!");
-            }
-            return enter;
-        }
-
         //Подругзка файла
         private void FileLoading()
         {
-            Thread file = new Thread(() =>
+            Thread fileLoading = new Thread(() =>
             {
                 FileInfo fi = new FileInfo(path);
                 fileName = fi.Name;
@@ -118,31 +83,22 @@ namespace Client
                     throw new Exception("Файл больше 10МБ!");
                 }
             });
-            file.Start();
+            fileLoading.Start();
         }
 
-        //Кодирует строку и отправляет её через TCP 
-        private void SendingMessage(NetworkStream stream, string text)
+        //Ввод аргументов
+        public void InputArgumentsConsole()
         {
-            byte[] data = Encoding.UTF8.GetBytes(text);
-            stream.Write(data, 0, data.Length);
+            CheckErorrsAndRepeat(() => {
+                address = TextToConsoleIsReadline("Введите Ip");
+                port = Convert.ToInt32(TextToConsoleIsReadline("Введите порт"));
+                portUDP = Convert.ToInt32(TextToConsoleIsReadline("Введите порт UDP"));
+                path = TextToConsoleIsReadline("Введите путь к файлу");
+                timeout = Convert.ToInt32(TextToConsoleIsReadline("Введите timeout"));
+            });
         }
 
-        //Принимает данные через TCP , переводит их в string и возвращает
-        private string ReceivingMessage(NetworkStream stream)
-        {
-            StringBuilder response = new StringBuilder();
-            byte[] data = new byte[256];
-            do
-            {
-                int bytes = stream.Read(data, 0, data.Length);
-                response.Append(Encoding.UTF8.GetString(data, 0, bytes));
-            }
-            while (stream.DataAvailable); // пока данные есть в потоке
-            return Convert.ToString(response);
-        }
-
-        //Отправка сообещния(text) на сервер до получения подтверждения
+        //Отправка сообещния(text) на сервер до получения отклика
         private void SendMessageAndGetResponse(NetworkStream stream, string text)
         {
             string response = null; // Переменная для отклика о принятии данных
@@ -164,36 +120,32 @@ namespace Client
             UdpClient clientUdp = new UdpClient();
 
             long indexbytes = 0;//id для датаграмм 
-            int limitedbyte = 59992;//Лимит передачи байтов 
+            int limitedbyte = 60000;//Лимит передачи байтов 
 
              
             //Через цикл файл делится на части, не больше limitedbyte
             for (int i = 0; i < bufferfile.Count; i += limitedbyte)
             {
-                //Контейнер байтов для отправки данных через UDP 
-                List<byte> indexBufferfile = new List<byte>();
+                //объект для отправки данных через UDP 
+                DataPackage package;
 
-                //Добавление indexbytes в начало контейнера (Первые 8 байт)
-                indexBufferfile.AddRange(BitConverter.GetBytes(indexbytes).ToList());
-
-                //в indexBufferfile записывается часть файла bufferfile (размером не больше limitedbyte + 8)
+                //в package записывается часть файла bufferfile (размером не больше limitedbyte)
                 if ((i + limitedbyte) > bufferfile.Count)
                 {
-                    indexBufferfile.AddRange(bufferfile.GetRange(i, bufferfile.Count - i));
+                    package = new DataPackage(indexbytes, bufferfile.GetRange(i, bufferfile.Count - i));
                 }
                 else
                 {
-                    indexBufferfile.AddRange(bufferfile.GetRange(i, limitedbyte));
+                    package = new DataPackage(indexbytes, bufferfile.GetRange(i, limitedbyte));
                 }
-
-
-                long response = -1; //отклик с сервера
+                
+                long response = -1; //Условие для цикла,
 
                 //Файл отправляется на сервер, пока не будет получен ответ(В ответе id датаграммы) через TCP
                 do
                 {
                     //Отправление файла
-                    int numberOfSentBytes = clientUdp.Send(indexBufferfile.ToArray(), indexBufferfile.Count, address, portUDP);
+                    int numberOfSentBytes = clientUdp.Send(package.GetPackage().ToArray(), package.Count, address, portUDP);
                     Console.WriteLine($"Отправлено байт:{numberOfSentBytes} ID:{indexbytes}");
 
                     //timeout 
