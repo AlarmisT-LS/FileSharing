@@ -4,7 +4,7 @@ using System.Net.Sockets;
 
 namespace Server
 {
-    public class FileServer
+    public class FileServer : DataExchange
     {
         private string ipAddress;
         private int port;
@@ -15,7 +15,7 @@ namespace Server
         //флаг для выхода из цикла получения данных UDP
         private bool flagEnd;
         
-        public FileServer() {    }
+        public FileServer() {   }
         public FileServer(string ip, int port, string path)
         {
             ipAddress = ip;
@@ -33,24 +33,23 @@ namespace Server
                 server = new TcpListener(Addr, port);
                 server.Start();
 
-
                 while (true)
                 {
                     Console.WriteLine("Поиск клиента...");
                     // получаем входящее подключение
                     TcpClient client = server.AcceptTcpClient();
 
-                    // получаем сетевой поток для чтения и записи 
+                    // получаем сетевой поток
                     NetworkStream stream = client.GetStream();
 
                     //Принимаем данные через TCP
                     remotePortUdp = Convert.ToInt32(ReceivingMessage(stream));
-
                     //Отправляем подтверждение через TCP для клиента что данные получены
                     SendingMessage(stream, "Отклик: Порт принят");
 
-                    fileName = Convert.ToString(ReceivingMessage(stream));
+                    fileName = ReceivingMessage(stream);
                     SendingMessage(stream, "Отклик: Название принято");
+
 
                     Console.Write($"Порт UDP получен:{remotePortUdp}\n" +
                         $"Имя файла получено:{fileName}\n");
@@ -59,11 +58,8 @@ namespace Server
                     UdpClient receiver = new UdpClient(remotePortUdp);
                     IPEndPoint remoteIp = null;
 
-                    //контейнер байтов для записи данных от клиента
+                    //контейнер байтов для записи файла
                     List<byte> fileBytes = new List<byte>();
-
-                    // Переменная для индексирования получаемых данных UDP
-                    long indexbytes;
 
                     flagEnd = true;//Флаг для цикла принятия данных от клиента, он связан с MessageToEndTcp
                                    //после ответа клиента о конце передачи файла flagEnd = false
@@ -76,21 +72,16 @@ namespace Server
                     {
                         if (receiver.Available > 0)
                         {
-                            List<byte> bufferByte = new List<byte>();
-                            //Получение данных
-                            bufferByte.AddRange(receiver.Receive(ref remoteIp).ToList());
+                            //package принимает через конструктор массив байт UDP
+                            DataPackage package = new DataPackage(receiver.Receive(ref remoteIp));
 
-                            //Id датаграммы
-                            indexbytes = BitConverter.ToInt64(bufferByte.GetRange(0, 8).ToArray());
+                            //Добавление данных в контейнер байт файла
+                            fileBytes.AddRange(package.Data);
 
-                            //Добавление данных в контейнер(без id датаграммы)
-                            fileBytes.AddRange(bufferByte.GetRange(8, bufferByte.Count - 8));
+                            //Отправка отклика через TCP о получении UDP датаграммы (Отправление id датаграммы)
+                            SendingMessage(stream, package.Id.ToString());
 
-                            //Подтверждение получения через TCP (Отправление id датаграммы)
-                            SendingMessage(stream, indexbytes.ToString() );
-
-                            Console.WriteLine($"Принято байт:{bufferByte.Count} ID:{indexbytes}");
-
+                            Console.WriteLine($"Принято байт:{package.Count} ID:{package.Id}");
                         }
                     } while (flagEnd);
 
@@ -120,56 +111,14 @@ namespace Server
         }
 
         //Инициализация параметров сервера через консоль
-        public void VariableInitializationConsole()
+        public void InputArgumentsConsole()
         {
-            while (true)
+            CheckErorrsAndRepeat( () =>
             {
-                try
-                {
-                    ipAddress = TextToConsoleIsReadline("Введите ip");
-                    port = Convert.ToInt32(TextToConsoleIsReadline("Введите port"));
-                    katalog = TextToConsoleIsReadline("Введите каталог для хранения файлов");
-                    break;
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine(e.Message);
-                }
-            }
-        }
-
-        //Вывод текста в консоль + считывание текста и после возврат в string
-        private string TextToConsoleIsReadline(string text)
-        {
-            string enter;
-            Console.Write($"{text}:");
-            enter = Console.ReadLine();
-            if (enter == null)
-            {
-                throw new Exception("Введено некорректное значение!");
-            }
-            return enter;
-        }
-
-        //Кодирует строку и отправляет её через TCP 
-        private void SendingMessage(NetworkStream stream, string text)
-        {
-            byte[] data = Encoding.UTF8.GetBytes(text);
-            stream.Write(data, 0, data.Length);
-        }
-
-        //Принимает данные через TCP , переводит их в string и возвращает
-        private string ReceivingMessage(NetworkStream stream)
-        {
-            StringBuilder response = new StringBuilder();
-            byte[] data = new byte[256];
-            do
-            {
-                int bytes = stream.Read(data, 0, data.Length);
-                response.Append(Encoding.UTF8.GetString(data, 0, bytes));
-            }
-            while (stream.DataAvailable);
-            return Convert.ToString(response);
+                ipAddress = TextToConsoleIsReadline("Введите ip");
+                port = Convert.ToInt32(TextToConsoleIsReadline("Введите port"));
+                katalog = TextToConsoleIsReadline("Введите каталог для хранения файлов");
+            });
         }
 
         //Ожидает подтверждение через TCP от клиента об завершении передачи файла 

@@ -14,7 +14,7 @@ namespace Server
         {
             FileServer server = new FileServer();
             //Ввод параметров сервера
-            server.VariableInitializationConsole();
+            server.InputArgumentsConsole();
             //Запуск сервера
             server.StartServer();
         }
